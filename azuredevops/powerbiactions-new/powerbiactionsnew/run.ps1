@@ -76,7 +76,7 @@ PROCESS {
 		$datasourceType = Get-VstsInput -Name DatasourceType
 		$updateAll = Get-VstsInput -Name UpdateAll -AsBool
 		$skipReport = Get-VstsInput -Name SkipReport -AsBool
-		$individualString = Get-VstsInput -Name Individual
+		$scope = Get-VstsInput -Name Scope
 		$servicePrincipalString = Get-VstsInput -Name ServicePrincipals
 		$connectionString = Get-VstsInput -Name ConnectionString
 		$ParameterInput = Get-VstsInput -Name ParameterInput
@@ -93,12 +93,13 @@ PROCESS {
 		$datasetPermissionsUsers = Get-VstsInput -Name DatasetPermissionsUsers
 		$datasetPermissionsGroupObjectIds = Get-VstsInput -Name DatasetPermissionsGroupObjectIds
 		$datasetAccessRight = Get-VstsInput -Name DatasetAccessRight
+		$serverName = Get-VstsInput -Name Server
+		$databaseName = Get-VstsInput -Name Database
+		$tenantID = Get-VstsInput -Name TenantID		
+		$servicePrincipalID = Get-VstsInput -Name ServicePrincipalID
+		$servicePrincipalKey = Get-VstsInput -Name ServicePrincipalKey
 
-		$individual = $false
-		if($individualString -eq "Individual"){
-			$individual = $true
-		}
-
+		
 		Write-Debug "WorkspaceName         : $($workspaceName)";
 		Write-Debug "Create                : $($Create)";
 
@@ -186,7 +187,7 @@ PROCESS {
 			Update-ConnectionStringDirectQuery -WorkspaceName $workspaceName -DatasetName $dataset -ConnectionString $connectionstring
 		}
 		elseif($action -eq "UpdateSqlCreds"){
-			Update-BasicSQLDataSourceCredentials -WorkspaceName $workspaceName -ReportName $ReportName -Username $userName -Password $password -Individual $individual
+			Update-BasicSQLDataSourceCredentials -WorkspaceName $workspaceName -ReportName $ReportName -Username $userName -Password $password -Scope $scope
 		}
 		elseif ($action -eq "UpdateParameters") {
 			Write-Debug "Dataset               : $($dataset)";
@@ -328,6 +329,19 @@ PROCESS {
 					Add-PowerBIDatasetPermissions -WorkspaceName $workspaceName -DatasetName $dataset -PrincipalType $principalType -Identifiers $groups -AccessRight $datasetAccessRight
 				}
 			}
+		}
+		elseif ($action -eq "SetSQLDatasourceSPCredentials") {
+			Write-Debug "DatasetName         : $($dataset)";			
+			Write-Debug "ServerName          : $($serverName)";
+			Write-Debug "DatabaseName        : $($databaseName)";
+			Write-Debug "TenantID            : $($tenantID)";
+			Write-Debug "ServicePrincipalID  : $($servicePrincipalID)";
+			Write-Debug "ServicePrincipalKey : $($servicePrincipalKey)";
+			Write-Debug "Scope               : $($scope)";
+
+			Write-Host "Trying to set Service Principal credentials of SQL datasource"
+
+			Set-PowerBIDatasourceCredentials -WorkspaceName $workspaceName -DatasetName $dataset -DatasourceType "Sql" -ServerName $serverName -DatabaseName $databaseName -CredentialType "ServicePrincipal" -TenantID $tenantId -ServicePrincipalID $servicePrincipalID -ServicePrincipalKey $servicePrincipalKey -Scope $scope
 		}
 	}
 	finally {
