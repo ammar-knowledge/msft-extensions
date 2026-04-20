@@ -654,7 +654,7 @@ Function Import-PowerBIFile {
     $result = Invoke-API -Url $url -Method "Post" -Body $body -ContentType "multipart/form-data; boundary=--$boundary"
 
     $reportId = $result.Id
-    $reportId = $result.Name
+    $reportName = $result.Name
     Write-Host "##vso[task.setvariable variable=PowerBIActions.ReportId]$reportId"
     Write-Host "##vso[task.setvariable variable=PowerBIActions.ReportName]$reportName"
 
@@ -850,7 +850,7 @@ Function Publish-PowerBIFileApi {
             }
             else {
                 $publish = $false
-                Write-Host "##vso[task.setvariable variable=PowerBIActions.ReportName]$(report.name)"
+                Write-Host "##vso[task.setvariable variable=PowerBIActions.ReportName]$($report.name)"
                 Write-Warning "Report already exists"
             }
         }
@@ -1015,19 +1015,13 @@ function Update-BasicSQLDataSourceCredentials{
         [parameter(Mandatory = $true)]$ReportName,
         [Parameter(Mandatory=$true)]$Username,
         [Parameter(Mandatory=$true)]$Password,
-        [Parameter(Mandatory=$true)]$Individual
+        [Parameter(Mandatory=$true)]$Scope
     )
 
     $GroupPath = Get-PowerBIGroupPath -WorkspaceName $WorkspaceName -Create $false
     $report = Get-PowerBIReport -GroupPath $GroupPath -ReportName $ReportName -Verbose
 
     $datasources = Get-PowerBiDataSetDataSources -GroupPath $GroupPath -DataSetId $report.DatasetId
-
-    if($Individual){
-        $level =  "Individual"
-    }else {
-        $level = "Organizational"
-    }
 
     foreach ($dataSource in $datasources) {
 
@@ -1048,7 +1042,7 @@ function Update-BasicSQLDataSourceCredentials{
                     "credentials": "{\"credentialData\":[{\"name\":\"username\", \"value\":\"$($FormattedDataSourceUser)\"},{\"name\":\"password\", \"value\":\"$($FormattedDataSourcePassword)\"}]}",
                     "encryptedConnection": "Encrypted",
                     "encryptionAlgorithm": "None",
-                    "privacyLevel": "$($level)"
+                    "privacyLevel": "$($Scope)"
                 }
             }
 "@

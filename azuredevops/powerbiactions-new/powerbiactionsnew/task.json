@@ -1,7 +1,7 @@
 {
   "id": "D5B7FEC6-2B25-4742-905B-0DAD97687DF5",
   "name": "PowerBIActions",
-  "friendlyName": "Power BI Actions",
+  "friendlyName": "BI Reporting Actions",
   "description": "Release Task Power BI Actions",
   "author": "Maik van der Gaag",
   "helpMarkDown": "",
@@ -17,7 +17,7 @@
     "Patch": "0"
   },
   "minimumAgentVersion": "1.95.0",
-  "instanceNameFormat": "Power BI Action: $(Action)",
+  "instanceNameFormat": "BI Reporting Action: $(Action)",
   "inputs": [
     {
       "name": "PowerBIServiceEndpoint",
@@ -54,7 +54,8 @@
         "RebindReport": "Rebind report",
         "UpdateSqlCreds": "Update SQL credentials",
         "SetRefreshSchedule" : "Set refresh schedule",
-        "SetDatasetPermissions" : "Set dataset permissions"
+        "SetDatasetPermissions" : "Set dataset permissions",
+        "SetSQLDatasourceSPCredentials": "Set SQL datasource Service Principal credentials"
       }
     },
     {
@@ -75,6 +76,15 @@
       "helpMarkDown": "Will skip the report when uploading",
       "visibleRule": "Action = Publish"
     },
+    {
+      "name": "Timeout",
+      "type": "string",
+      "label": "Timeout (in seconds)",
+      "defaultValue": "300",
+      "required": false,
+      "helpMarkDown": "The timeout for the upload operation",
+      "visibleRule": "Action = Publish"
+    },    
     {
       "name": "WorkspaceName",
       "type": "string",
@@ -119,7 +129,7 @@
       "required": false,
       "helpMarkDown": "Should the dataset be overwritten?",
       "visibleRule": "Action = Publish || Action = PublishandSkipReport"
-    },
+    },    
     {
       "name": "Create",
       "type": "boolean",
@@ -160,13 +170,15 @@
       "name": "Scope",
       "type": "picklist",
       "label": "Scope",
-      "defaultValue": "Individual",
+      "defaultValue": "Private",
       "required": true,
-      "helpMarkDown": "Individual is used to access entities that belong to the current user. Organization is used to access entities across the entire company. Only Power BI tenant admins are allowed to use.",
-      "visibleRule": "Action = UpdateSqlCreds",
+      "helpMarkDown": "Data sources set to Private contain sensitive or confidential information. Visibility can be restricted to authorized users. Data from a private data source won't fold in to other data sources, including other private data sources. Data sources set to Organizational can fold in to private and other organizational data sources. They can't fold in to public data sources. Visibility is set to a trusted group. Files, internet data sources, and workbook data can be set to Public. Data can fold in to other data sources. Visibility is available to everyone.",
+      "visibleRule": "Action = UpdateSqlCreds || Action = SetSQLDatasourceSPCredentials",
       "options": {
-        "Individual": "Individual",
-        "Organization": "Organization"
+        "Public": "Public",
+        "Organizational": "Organizational",
+        "Private": "Private",
+        "None": "None"
       }
     },
     {
@@ -200,7 +212,7 @@
       "defaultValue": "",
       "required": false,
       "helpMarkDown": "The name of the dataset",
-      "visibleRule": "Action = DataRefresh || Action = UpdateDatasource || Action = SQLDirect || Action = UpdateParameters || Action = TakeOwnership || Action = UpdateGateway || Action = BindToGateway || Action = RebindReport || Action = SetRefreshSchedule || Action = SetDatasetPermissions"
+      "visibleRule": "Action = DataRefresh || Action = UpdateDatasource || Action = SQLDirect || Action = UpdateParameters || Action = TakeOwnership || Action = UpdateGateway || Action = BindToGateway || Action = RebindReport || Action = SetRefreshSchedule || Action = SetDatasetPermissions || Action = SetSQLDatasourceSPCredentials"
     },
     {
       "name": "ReportName",
@@ -389,6 +401,51 @@
         "ReadReshare": "Read and Reshare",
         "ReadReshareExplore": "Read, Reshare and Build"
       }
+    },
+    {
+      "name": "Server",
+      "type": "string",
+      "label": "Server",
+      "defaultValue": "",
+      "required": true,
+      "helpMarkDown": "The name of the server",
+      "visibleRule": "Action = SetSQLDatasourceSPCredentials"
+    },
+    {
+      "name": "Database",
+      "type": "string",
+      "label": "Database",
+      "defaultValue": "",
+      "required": true,
+      "helpMarkDown": "The name of the database",
+      "visibleRule": "Action = SetSQLDatasourceSPCredentials"
+    },
+    {
+      "name": "TenantID",
+      "type": "string",
+      "label": "Tenant ID",
+      "defaultValue": "",
+      "required": true,
+      "helpMarkDown": "The id of the Tenant",
+      "visibleRule": "Action = SetSQLDatasourceSPCredentials"
+    },
+    {
+      "name": "ServicePrincipalID",
+      "type": "string",
+      "label": "Service Principal ID",
+      "defaultValue": "",
+      "required": true,
+      "helpMarkDown": "The id of the Service Principal",
+      "visibleRule": "Action = SetSQLDatasourceSPCredentials"
+    },
+    {
+      "name": "ServicePrincipalKey",
+      "type": "string",
+      "label": "Service Principal Key",
+      "defaultValue": "",
+      "required": true,
+      "helpMarkDown": "The key of the Service Principal",
+      "visibleRule": "Action = SetSQLDatasourceSPCredentials"
     }
   ],
   "execution": {

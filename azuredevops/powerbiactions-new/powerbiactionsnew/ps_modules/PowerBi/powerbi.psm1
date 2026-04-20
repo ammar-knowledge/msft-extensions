@@ -655,7 +655,7 @@ Function Import-PowerBIFile {
     $result = Invoke-API -Url $url -Method "Post" -Body $body -ContentType "multipart/form-data; boundary=--$boundary"
 
     $reportId = $result.Id
-    $reportId = $result.Name
+    $reportName = $result.Name
     Write-Host "##vso[task.setvariable variable=PowerBIActions.ReportId]$reportId"
     Write-Host "##vso[task.setvariable variable=PowerBIActions.ReportName]$reportName"
 
@@ -760,7 +760,8 @@ Function Publish-PowerBIFile {
         [parameter(Mandatory = $true)]$WorkspaceName,
         [parameter(Mandatory = $true)]$FilePattern,
         [parameter()][bool]$Create = $false,
-        [parameter()][bool]$Overwrite = $false
+        [parameter()][bool]$Overwrite = $false,
+        [parameter()][int]$Timeout = 300
     )
 
     $GroupPath = Get-PowerBIGroupPath -WorkspaceName $WorkspaceName -Create $Create
@@ -794,7 +795,7 @@ Function Publish-PowerBIFile {
             if($fileToPublish.EndsWith(".rdl")){
                 Publish-PowerBIFileApi -WorkspaceName $WorkspaceName -FilePattern $filePath -Create $Create -Overwrite $Overwrite -SkipReport $false
             }else{
-                $report = New-PowerBIReport -Path $filePath -Name $fileToPublish -Workspace $workspace -ConflictAction $conflictAction -Timeout 300
+                $report = New-PowerBIReport -Path $filePath -Name $fileToPublish -Workspace $workspace -ConflictAction $conflictAction -Timeout $Timeout
                 Write-Host "##vso[task.setvariable variable=PowerBIActions.ReportName]$($report.name)"
             }
         }
@@ -851,7 +852,7 @@ Function Publish-PowerBIFileApi {
             }
             else {
                 $publish = $false
-                Write-Host "##vso[task.setvariable variable=PowerBIActions.ReportName]$(report.name)"
+                Write-Host "##vso[task.setvariable variable=PowerBIActions.ReportName]$($report.name)"
                 Write-Warning "Report already exists"
             }
         }
@@ -1016,7 +1017,7 @@ function Update-BasicSQLDataSourceCredentials{
         [parameter(Mandatory = $true)]$ReportName,
         [Parameter(Mandatory=$true)]$Username,
         [Parameter(Mandatory=$true)]$Password,
-        [Parameter(Mandatory=$true)]$Individual
+        [Parameter(Mandatory=$true)]$Scope
     )
 
     $GroupPath = Get-PowerBIGroupPath -WorkspaceName $WorkspaceName -Create $false
@@ -1024,43 +1025,8 @@ function Update-BasicSQLDataSourceCredentials{
 
     $datasources = Get-PowerBiDataSetDataSources -GroupPath $GroupPath -DataSetId $report.DatasetId
 
-    if($Individual){
-        $level =  "Individual"
-    }else {
-        $level = "Organizational"
-    }
-
     foreach ($dataSource in $datasources) {
-
-        #Store the data source id in a variable (for ease of use later)
-        $dataSourceId = $dataSource.DatasourceId
-        #API url for data source
-        $ApiUrl = "gateways/" + $dataSource.GatewayId + "/datasources/" + $dataSourceId
-
-        #Format username and password, replacing escape characters for the body of the request
-        $FormattedDataSourceUser = $UserName.Replace("\", "\\")
-        $FormattedDataSourcePassword = $Password.Replace("\", "\\")
-
-        #Build the request body
-        $ApiRequestBody = @"
-            {
-                "credentialDetails": {
-                    "credentialType": "Basic",
-                    "credentials": "{\"credentialData\":[{\"name\":\"username\", \"value\":\"$($FormattedDataSourceUser)\"},{\"name\":\"password\", \"value\":\"$($FormattedDataSourcePassword)\"}]}",
-                    "encryptedConnection": "Encrypted",
-                    "encryptionAlgorithm": "None",
-                    "privacyLevel": "$($level)"
-                }
-            }
-"@
-        #If it's a sql server source, change the username/password
-        if ($dataSource.DatasourceType -eq "Sql") {
-
-            #Update username & password
-            Invoke-PowerBIRestMethod -Url $ApiUrl -Method Patch -Body "$ApiRequestBody"
-
-            Write-Output "Credentials for data source ""$DataSourceId"" successfully updated..." `n
-        }
+        Update-DatasourceCredentialsInGateway -DataSourceId $dataSource.datasourceId -GatewayId $dataSource.gatewayId -PrivacyLevel $Scope -CredentialType "Basic" -Username $Username -Password $Password
     }
 }
 
@@ -1204,6 +1170,110 @@ Function Get-PowerBiDatasetUsers {
   $result = Invoke-API -Url $url -Method "Get" -Verbose
   $users = $result.value
   return $users
+}
+
+Function Set-PowerBIDatasourceCredentials {
+    Param(
+        [parameter(Mandatory = $true)]$WorkspaceName,
+        [parameter(Mandatory = $true)]$DatasetName,
+        # Only SQL support for now but can be extended
+        # You will need other information for some of the other types to unique identify the datasource that is being searched (i.e. "account" for AzureBlobs); see https://learn.microsoft.com/en-us/rest/api/power-bi/datasets/get-datasources
+        [parameter(Mandatory = $true)][ValidateSet("SQL")]$DatasourceType, 
+        [parameter(Mandatory = $true)]$ServerName,
+        [parameter(Mandatory = $true)]$DatabaseName,
+        # Only ServicePrincipal support for now but can be extended
+        # You will need other information for some of the other types (i.e. "username" for Basic); see https://learn.microsoft.com/en-us/rest/api/power-bi/gateways/update-datasource
+        [parameter(Mandatory = $true)][ValidateSet("ServicePrincipal")]$CredentialType,        
+        [parameter(Mandatory = $true)]$TenantID,
+        [parameter(Mandatory = $true)]$ServicePrincipalID,
+        [parameter(Mandatory = $true)]$ServicePrincipalKey,
+        [parameter(Mandatory = $true)][ValidateSet("Public","Organizational","Private","None")]$Scope
+    )
+
+    # Retrieve workspace
+    Write-Host "Fetching workspace $($WorkspaceName)..." `n
+    $groupPath = Get-PowerBIGroupPath -WorkspaceName $WorkspaceName
+
+    if (!$groupPath) {
+        throw "Could not find workspace"
+    }
+
+    # Retrieve dataset
+    Write-Host "Fetching dataset $($DatasetName)..." `n
+    $dataset = Get-PowerBIDataset -GroupPath $groupPath -Name $DatasetName
+
+    if (!$dataset) {
+        throw "Could not find dataset"
+    }
+    
+    # Retrieve datasource(s)
+    $datasources = $null
+    if($DatasourceType -eq "SQL")
+    {
+        $datasources = Get-PowerBiDataSetDataSources -GroupPath $groupPath -DataSetId $dataset.id | Where-Object {$_.dataSourceType -eq $DatasourceType -and $_.connectionDetails.server -eq $ServerName -and $_.connectionDetails.database -eq $DatabaseName}
+    }
+    # Make sure to extend the options here if you introduce another DatasourceType
+
+    if(!$datasources)
+    {
+        throw "Could not find datasource(s)"
+    }
+
+    foreach ($datasource in $datasources) {
+        if($CredentialType -eq "ServicePrincipal")
+        {        
+            Update-DatasourceCredentialsInGateway -DataSourceId $datasource.datasourceId -GatewayId $datasource.gatewayId -PrivacyLevel $Scope -CredentialType $CredentialType -TenantId $TenantID -ServicePrincipalClientId $ServicePrincipalID -ServicePrincipalSecret $ServicePrincipalKey
+        }
+        # Make sure to extend the options here if you introduce another CredentialType        
+    }
+}
+
+function Update-DatasourceCredentialsInGateway {
+    Param(    
+        [CmdletBinding(DefaultParameterSetName='Basic')]
+        [parameter(Mandatory = $true)]$DatasourceId,
+        [parameter(Mandatory = $true)]$GatewayId,
+        [parameter(Mandatory = $true)]$PrivacyLevel,
+        [parameter(Mandatory = $true)][ValidateSet("ServicePrincipal","Basic")]$CredentialType, 
+        [Parameter(ParameterSetName='Basic', Mandatory=$true)]$Username,
+        [Parameter(ParameterSetName='Basic', Mandatory=$true)]$Password,
+        [Parameter(ParameterSetName='ServicePrincipal', Mandatory=$true)]$TenantId,
+        [Parameter(ParameterSetName='ServicePrincipal', Mandatory=$true)]$ServicePrincipalClientId,
+        [Parameter(ParameterSetName='ServicePrincipal', Mandatory=$true)]$ServicePrincipalSecret
+    )
+
+    $url = "gateways/$GatewayId/datasources/$DatasourceId"
+    
+    $credentials = ""
+    if($CredentialType -eq "ServicePrincipal")
+    {
+        $servicePrincipalSecretFormatted = $ServicePrincipalSecret.Replace("\", "\\")        
+        $credentials = "`"{\`"credentialData\`":[{\`"name\`":\`"tenantId\`",\`"value\`":\`"$TenantId\`"},{\`"name\`":\`"servicePrincipalClientId\`",\`"value\`":\`"$ServicePrincipalClientId\`"},{\`"name\`":\`"servicePrincipalSecret\`",\`"value\`":\`"$servicePrincipalSecretFormatted\`"}]}`""
+    }
+    elseif($CredentialType -eq "Basic")
+    {
+        $usernameFormatted = $Username.Replace("\", "\\")
+        $paswordFormatted = $Password.Replace("\", "\\")        
+        $credentials = "`"{\`"credentialData\`":[{\`"name\`":\`"username\`",\`"value\`":\`"$usernameFormatted\`"},{\`"name\`":\`"password\`",\`"value\`":\`"$paswordFormatted\`"}]}`""
+    }
+
+    #Build the request body
+    $body = @"
+      {
+          "credentialDetails": {
+              "credentialType": "$CredentialType",
+              "credentials": $credentials,
+              "encryptedConnection": "Encrypted",
+              "encryptionAlgorithm": "None",
+              "privacyLevel": "$PrivacyLevel"
+          }
+      }
+"@
+
+    #Update datasource
+    Invoke-PowerBIRestMethod -Url $url -Method "Patch" -Body $body -Verbose
+
+    Write-Output "Credentials for data source $DatasourceId successfully updated..." `n
 }
 
 Export-ModuleMember -Function "*-*"
